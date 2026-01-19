@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hand HUD – Fixed</title>
+
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: black;
+    overflow: hidden;
+  }
+
+  video, canvas {
+    position: absolute;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    transform: scaleX(-1); /* mirror camera */
+  }
+
+  #startBtn {
+    position: absolute;
+    z-index: 10;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 14px 24px;
+    font-size: 18px;
+    background: cyan;
+    color: black;
+    border: none;
+    border-radius: 8px;
+  }
+
+  .cube {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    background: rgba(0,255,255,0.9);
+    box-shadow: 0 0 12px cyan, 0 0 25px cyan;
+    animation: pop 0.25s ease-out;
+    pointer-events: none;
+  }
+
+  @keyframes pop {
+    from { transform: scale(0.4); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+</style>
+</head>
+
+<body>
+
+<button id="startBtn">START HUD</button>
+<video id="video" playsinline></video>
+<canvas id="canvas"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const btn = document.getElementById("startBtn");
+
+canvas.width = innerWidth;
+canvas.height = innerHeight;
+
+let lastSpawn = 0;
+
+/* ===== VISUAL ===== */
+function spawnCube(x, y) {
+  const now = Date.now();
+  if (now - lastSpawn < 600) return;
+  lastSpawn = now;
+
+  const c = document.createElement("div");
+  c.className = "cube";
+  c.style.left = (x - 14) + "px";
+  c.style.top = (y - 14) + "px";
+  document.body.appendChild(c);
+}
+
+function clearCubes() {
+  document.querySelectorAll(".cube").forEach(c => c.remove());
+}
+
+/* ===== HANDS ===== */
+const hands = new Hands({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+});
+
+hands.setOptions({
+  maxNumHands: 1,
+  modelComplexity: 0,
+  minDetectionConfidence: 0.6,
+  minTrackingConfidence: 0.6
+});
+
+hands.onResults(res => {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  if (!res.multiHandLandmarks.length) return;
+
+  const lm = res.multiHandLandmarks[0];
+  const palm = lm[9];
+  const thumb = lm[4];
+  const index = lm[8];
+  const middle = lm[12];
+
+  const x = (1 - palm.x) * canvas.width;
+  const y = palm.y * canvas.height;
+
+  // debug dot (YOU SHOULD SEE THIS)
+  ctx.beginPath();
+  ctx.arc(x, y, 6, 0, Math.PI*2);
+  ctx.fillStyle = "cyan";
+  ctx.fill();
+
+  const openDist = dist(index, middle);
+  const pinchDist = dist(thumb, index);
+
+  if (openDist > 0.06 && pinchDist > 0.06) {
+    spawnCube(x + 20, y - 20);
+  }
+
+  if (openDist < 0.035) {
+    clearCubes();
+  }
+});
+
+function dist(a,b){
+  return Math.hypot(a.x-b.x, a.y-b.y);
+}
+
+/* ===== START (IMPORTANT) ===== */
+btn.onclick = async () => {
+  btn.remove();
+
+  const camera = new Camera(video, {
+    onFrame: async () => {
+      await hands.send({ image: video });
+    },
+    width: 1280,
+    height: 720
+  });
+
+  camera.start();
+};
+</script>
+
+</body>
+  </html>
