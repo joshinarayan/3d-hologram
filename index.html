@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hand HUD – Fixed</title>
+<title>Hand HUD System</title>
 
 <style>
   html, body {
@@ -11,6 +11,7 @@
     padding: 0;
     background: black;
     overflow: hidden;
+    font-family: Arial, sans-serif;
   }
 
   video, canvas {
@@ -18,29 +19,42 @@
     width: 100vw;
     height: 100vh;
     object-fit: cover;
-    transform: scaleX(-1); /* mirror camera */
+    transform: scaleX(-1);
   }
 
-  #startBtn {
+  .top-text, .bottom-text {
     position: absolute;
+    width: 100%;
+    text-align: center;
+    color: white;
+    text-shadow: 0 0 12px cyan;
     z-index: 10;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    padding: 14px 24px;
-    font-size: 18px;
-    background: cyan;
-    color: black;
-    border: none;
-    border-radius: 8px;
+    pointer-events: none;
+  }
+
+  .top-text {
+    top: 20px;
+    font-size: 22px;
+  }
+
+  .bottom-text {
+    bottom: 20px;
+    font-size: 16px;
   }
 
   .cube {
     position: absolute;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     background: rgba(0,255,255,0.9);
-    box-shadow: 0 0 12px cyan, 0 0 25px cyan;
+    box-shadow:
+      0 0 12px cyan,
+      0 0 25px cyan;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: black;
+    font-weight: bold;
     animation: pop 0.25s ease-out;
     pointer-events: none;
   }
@@ -54,7 +68,9 @@
 
 <body>
 
-<button id="startBtn">START HUD</button>
+<div class="top-text">Ironman who? 🚀</div>
+<div class="bottom-text">( Comment Git )</div>
+
 <video id="video" playsinline></video>
 <canvas id="canvas"></canvas>
 
@@ -62,34 +78,57 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
+const SEQUENCE = ["A","I","X","R","7","9"]; // ← CHANGE THIS
+let seqIndex = 0;
+let cubes = [];
+let lastSpawn = 0;
+let locked = false;
+
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
-const btn = document.getElementById("startBtn");
 
 canvas.width = innerWidth;
 canvas.height = innerHeight;
 
-let lastSpawn = 0;
-
-/* ===== VISUAL ===== */
+/* ===== CUBE LOGIC ===== */
 function spawnCube(x, y) {
+  if (seqIndex >= SEQUENCE.length) return;
+
   const now = Date.now();
-  if (now - lastSpawn < 600) return;
+  if (now - lastSpawn < 650) return;
   lastSpawn = now;
 
   const c = document.createElement("div");
   c.className = "cube";
-  c.style.left = (x - 14) + "px";
-  c.style.top = (y - 14) + "px";
+  c.innerText = SEQUENCE[seqIndex++];
+  c.style.left = x + "px";
+  c.style.top = y + "px";
   document.body.appendChild(c);
+
+  cubes.push(c);
+  alignCubes();
+}
+
+function alignCubes() {
+  const centerX = innerWidth / 2;
+  const y = innerHeight / 2 + 80;
+  const spacing = 42;
+
+  cubes.forEach((c, i) => {
+    c.style.left = (centerX + (i - cubes.length / 2) * spacing) + "px";
+    c.style.top = y + "px";
+  });
 }
 
 function clearCubes() {
-  document.querySelectorAll(".cube").forEach(c => c.remove());
+  cubes.forEach(c => c.remove());
+  cubes = [];
+  seqIndex = 0;
+  locked = false;
 }
 
-/* ===== HANDS ===== */
+/* ===== HAND TRACKING ===== */
 const hands = new Hands({
   locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
 });
@@ -103,7 +142,6 @@ hands.setOptions({
 
 hands.onResults(res => {
   ctx.clearRect(0,0,canvas.width,canvas.height);
-
   if (!res.multiHandLandmarks.length) return;
 
   const lm = res.multiHandLandmarks[0];
@@ -115,43 +153,42 @@ hands.onResults(res => {
   const x = (1 - palm.x) * canvas.width;
   const y = palm.y * canvas.height;
 
-  // debug dot (YOU SHOULD SEE THIS)
+  // HUD dot (video-like)
   ctx.beginPath();
-  ctx.arc(x, y, 6, 0, Math.PI*2);
+  ctx.arc(x, y, 6, 0, Math.PI * 2);
   ctx.fillStyle = "cyan";
   ctx.fill();
 
   const openDist = dist(index, middle);
   const pinchDist = dist(thumb, index);
 
-  if (openDist > 0.06 && pinchDist > 0.06) {
+  if (openDist > 0.06 && pinchDist > 0.06 && !locked) {
     spawnCube(x + 20, y - 20);
   }
 
   if (openDist < 0.035) {
     clearCubes();
   }
+
+  if (openDist > 0.08) {
+    locked = true; // hold palm steady = lock formation
+  }
 });
 
 function dist(a,b){
-  return Math.hypot(a.x-b.x, a.y-b.y);
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-/* ===== START (IMPORTANT) ===== */
-btn.onclick = async () => {
-  btn.remove();
-
-  const camera = new Camera(video, {
-    onFrame: async () => {
-      await hands.send({ image: video });
-    },
-    width: 1280,
-    height: 720
-  });
-
-  camera.start();
-};
+/* ===== CAMERA START ===== */
+const camera = new Camera(video, {
+  onFrame: async () => {
+    await hands.send({ image: video });
+  },
+  width: 1280,
+  height: 720
+});
+camera.start();
 </script>
 
 </body>
-  </html>
+</html>
